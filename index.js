@@ -27,10 +27,19 @@ async function run() {
     await client.connect();
 
     const menuCollection = client.db("BistroBossResDB").collection("menus");
-
+    const cartCollection = client.db("BistroBossResDB").collection('carts')
+    
     app.get('/menus', async(req,res) =>{
         const data = await menuCollection.find().toArray()
         res.send(data);
+    })
+
+    //cart collection
+    app.post('/carts', async(req,res) =>{
+      const item = req.body;
+      console.log(item);
+      const result = await cartCollection.insertOne(item);
+      res.send(result);
     })
 
     // Send a ping to confirm a successful connection
@@ -52,3 +61,17 @@ app.get('/', (req,res) => {
 app.listen(port, ()=>{
     console.log("bistro boss server is running on port ",port)
 })
+
+
+/**
+ * ---------------------------------
+ *           Naming Convention
+ * ----------------------------------
+ * users : userCollection
+ * app.get('/users')
+ * app.get('/users/:id')
+ * app.post('/users')
+ * app.patch('/users/:id')
+ * app.put('/users/:id')
+ * app.delete('/users/:id')
+ */
