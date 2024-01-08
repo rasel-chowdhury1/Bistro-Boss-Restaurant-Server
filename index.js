@@ -77,7 +77,7 @@ async function run() {
      */
 
     //user related api
-    app.get('/users', verifyJWT, verifyAdmin, async(req,res) =>{
+    app.get('/users', verifyJWT, async(req,res) =>{
       const result = await userCollection.find().toArray();
       res.send(result);
     })
@@ -85,7 +85,7 @@ async function run() {
 
     app.post('/users', async(req,res) =>{
       const user = req.body;
-      console.log(user)
+      // console.log(user)
       const query = {email: user.email}
 
       const existingUser = await userCollection.findOne(query)
@@ -99,7 +99,7 @@ async function run() {
     // security layer: verifyJWT
     //email same
     // check admin
-    app.get('/users/admin/:email', verifyJWT, async(req,res) =>{
+    app.get('/users/admin/:email', verifyJWT,verifyAdmin, async(req,res) =>{
       const email = req.params.email;
 
       if(req.decoded.email !== email){
@@ -132,6 +132,19 @@ async function run() {
     app.get('/menus', async(req,res) =>{
         const data = await menuCollection.find().toArray()
         res.send(data);
+    })
+
+    app.post('/menu', verifyJWT, verifyAdmin, async(req,res) =>{
+      const newItem = req.body;
+      const result = await menuCollection.insertOne(newItem)
+      res.send(result);
+    })
+
+    app.delete('/menu/:id', verifyJWT, verifyAdmin, async(req,res) =>{
+      const id = req.params.id;
+      const query = {_id: new ObjectId(id)};
+      const result = await menuCollection.deleteOne(query);
+      res.send(result);
     })
 
     //cart collection api
