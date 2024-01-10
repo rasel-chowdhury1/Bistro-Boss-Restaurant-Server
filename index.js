@@ -5,6 +5,8 @@ const app = express();
 const port = process.env.PORT || 3000;
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 require('dotenv').config();
+const stripe = require("stripe")(process.env.PAYMENT_SECRET_KEY)
+
 
 //middelware
 app.use(cors());
@@ -17,7 +19,7 @@ const verifyJWT = (req, res, next) =>{
   }
   //bearer token
   const token = authorization.split(' ')[1];
-
+  console.log('token from verifyJWT : ',token)
   jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err,decoded) =>{
     if(err){
       return res.status(401).send({error: true, message: 'unauthorized access'})
@@ -47,12 +49,14 @@ async function run() {
     
     const userCollection = client.db("BistroBossResDB").collection("users");
     const menuCollection = client.db("BistroBossResDB").collection("menus");
-    const cartCollection = client.db("BistroBossResDB").collection('carts')
-    
+    const reviewCollection = client.db("BistroBossResDB").collection("reviews");
+    const cartCollection = client.db("BistroBossResDB").collection('carts');
+    const paymentCollection = client.db("BistroBossResDB").collection('PaymentHistory');
     // console.log(process.env.ACCESS_TOKEN_SECRET)
 
     app.post('/jwt', (req,res) =>{
       const user = req.body;
+      console.log('user from jwt : ', user)
       const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
         expiresIn: '1hr'})
 
@@ -62,9 +66,12 @@ async function run() {
     //Warning: use verifyJWT before using verifyAdmin
     const verifyAdmin = async(req, res, next) =>{
       const email = req.decoded.email;
+      console.log("email from verifyAdmin : ", email)
       const query = {email: email}
       const user = await userCollection.findOne(query)
-      if(user?.role !== 'admin'){
+      console.log('user value from verifyadmin',user)
+      console.log('user role from verifyadmin',user?.roll)
+      if(user?.roll !== 'admin'){
         return res.status(403).send({error: true, message: 'forbidden message'})
       }
       next()
@@ -101,6 +108,7 @@ async function run() {
     // check admin
     app.get('/users/admin/:email', verifyJWT,verifyAdmin, async(req,res) =>{
       const email = req.params.email;
+      console.log(email)
 
       if(req.decoded.email !== email){
         res.send({ admin: false})
@@ -108,8 +116,7 @@ async function run() {
 
       const query = {email: email};
       const user = await userCollection.findOne(query);
-
-      const result = { admin: user?.role === 'admin'};
+      const result = { admin: user?.roll === 'admin'};
       res.send(result)
     })
 
@@ -180,6 +187,48 @@ async function run() {
        console.log(result)
        res.send(result)
     })
+
+    //review related api
+    app.get('/reviews', async(req,res) =>{
+      const result = await reviewCollection.find().toArray()
+      res.send(result)
+    })
+
+    app.post('/addReview', async(req,res) =>{
+      const data = req.body;
+      const result = await reviewCollection(data);
+      res.send(result)
+    })
+
+    //payment related api
+    app.post('/payments', verifyJWT, async(req,res) =>{
+      const payment = req.body;
+      console.log(payment)
+      const result = await paymentCollection.insertOne(payment)
+
+      const query = {_id: { $in: payment.cartItems.map(id => new ObjectId(id))}}
+      const deleteResult = await cartCollection.deleteMany(query)
+      res.send({result, deleteResult})
+
+      
+    })
+    
+    //payment related work
+    app.post("/create-payment-intent", verifyJWT, async (req, res) => {
+        const { price } = req.body;
+        const amount = parseFloat((price*100).toFixed(2));
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: amount,
+          currency: 'usd',
+          payment_method_types: ['card']
+        })
+        
+        res.send({
+          clientSecret: paymentIntent.client_secret
+        })
+        });
+
+    
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
