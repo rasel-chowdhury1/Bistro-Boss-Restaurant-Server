@@ -135,6 +135,67 @@ async function run() {
       res.send(result)
     })
 
+    //admin dashbaord related api 
+    app.get('/admin-stats', verifyJWT, verifyAdmin, async(req,res) =>{
+      const users = await userCollection.estimatedDocumentCount();
+      const products = await menuCollection.estimatedDocumentCount();
+      const orders = await paymentCollection.estimatedDocumentCount();
+      
+      //best way to get sum of a field is to use group and sum operator
+      const payments = await paymentCollection.find().toArray();
+      const revenue = payments.reduce( (sum, payment) => sum + payment.price, 0)
+
+      res.send({
+        users,
+        products,
+        orders,
+        revenue
+      })
+    })
+    
+    /**
+     * ------------------
+     * Bangla System(second best solution)
+     * -------------------
+     * 1. load all payments
+     * 2. for each payment, get the menuItems array
+     * 3. for each item in the menuItems array get the menuItem from 
+     *    menu collection
+     * 4. put them in an array: allOrderedItems
+     * 5. separate allOrderedItems by category using filter
+     * 6. now get the quantity by using length: pizzas.length
+     * 7. for each category use reduce to get the total amount 
+     *    spent on this category
+     */
+    app.get('/order-stats', async(req,res) => {
+      const pipeline = [
+        {
+          $lookup: {
+            from: 'menus',
+            localField: 'menuItems',
+            foreignField: '_id',
+            as: 'menuItemsData'
+          }
+        },
+        {
+          $unwind: '$menuItemsData'
+        },
+        {
+          $group: {
+            _id: '$menuItemsData.category',
+            count: {$sum: 1},
+            totalPrice: { $sum: '$menuItemsData.price'}
+          }
+        }
+      ];
+      console.log(await paymentCollection.aggregate(pipeline).toArray())
+
+      const result = await paymentCollection.aggregate(pipeline).toArray()
+      res.send(result)
+    })
+
+    
+
     //menu related api
     app.get('/menus', async(req,res) =>{
         const data = await menuCollection.find().toArray()
@@ -216,7 +277,7 @@ async function run() {
     //payment related work
     app.post("/create-payment-intent", verifyJWT, async (req, res) => {
         const { price } = req.body;
-        const amount = parseFloat((price*100).toFixed(2));
+        const amount = parseInt((price*100));
         const paymentIntent = await stripe.paymentIntents.create({
           amount: amount,
           currency: 'usd',
