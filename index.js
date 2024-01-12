@@ -3,6 +3,7 @@ const cors = require('cors')
 const jwt = require('jsonwebtoken')
 const app = express();
 const port = process.env.PORT || 3000;
+const nodemailer = require("nodemailer");
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 require('dotenv').config();
 const stripe = require("stripe")(process.env.PAYMENT_SECRET_KEY)
@@ -12,6 +13,8 @@ const stripe = require("stripe")(process.env.PAYMENT_SECRET_KEY)
 app.use(cors());
 app.use(express.json())
 
+
+
 const verifyJWT = (req, res, next) =>{
   const authorization = req.headers.authorization;
   if(!authorization){
@@ -19,7 +22,6 @@ const verifyJWT = (req, res, next) =>{
   }
   //bearer token
   const token = authorization.split(' ')[1];
-  console.log('token from verifyJWT : ',token)
   jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err,decoded) =>{
     if(err){
       return res.status(401).send({error: true, message: 'unauthorized access'})
@@ -51,12 +53,12 @@ async function run() {
     const menuCollection = client.db("BistroBossResDB").collection("menus");
     const reviewCollection = client.db("BistroBossResDB").collection("reviews");
     const cartCollection = client.db("BistroBossResDB").collection('carts');
+    const bookingCollection = client.db("BistroBossResDB").collection('booking');
     const paymentCollection = client.db("BistroBossResDB").collection('PaymentHistory');
     // console.log(process.env.ACCESS_TOKEN_SECRET)
 
     app.post('/jwt', (req,res) =>{
       const user = req.body;
-      console.log('user from jwt : ', user)
       const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
         expiresIn: '1hr'})
 
@@ -66,11 +68,8 @@ async function run() {
     //Warning: use verifyJWT before using verifyAdmin
     const verifyAdmin = async(req, res, next) =>{
       const email = req.decoded.email;
-      console.log("email from verifyAdmin : ", email)
       const query = {email: email}
       const user = await userCollection.findOne(query)
-      console.log('user value from verifyadmin',user)
-      console.log('user role from verifyadmin',user?.roll)
       if(user?.roll !== 'admin'){
         return res.status(403).send({error: true, message: 'forbidden message'})
       }
@@ -167,36 +166,82 @@ async function run() {
      * 7. for each category use reduce to get the total amount 
      *    spent on this category
      */
-    app.get('/order-stats', async(req,res) => {
-      const pipeline = [
-        {
-          $lookup: {
-            from: 'menus',
-            localField: 'menuItems',
-            foreignField: '_id',
-            as: 'menuItemsData'
-          }
-        },
-        {
-          $unwind: '$menuItemsData'
-        },
-        {
-          $group: {
-            _id: '$menuItemsData.category',
-            count: {$sum: 1},
-            totalPrice: { $sum: '$menuItemsData.price'}
-          }
-        }
-      ];
-      console.log(await paymentCollection.aggregate(pipeline).toArray())
+    // // app.get('/order-stats', async(req,res) => {
+    //   const pipeline = [
+    //     {
+    //       $lookup: {
+    //         from: 'menus',
+    //         localField: 'menuItems',
+    //         foreignField: '_id',
+    //         as: 'menuItemsData'
+    //       }
+    //     },
+    //     {
+    //       $unwind: '$menuItemsData'
+    //     },
+    //     {
 
-      const result = await paymentCollection.aggregate(pipeline).toArray()
-      res.send(result)
-    })
+          
+    //       $group: {
+    //         _id: '$menuItemsData.category',
+    //         count: {$sum: 1},
+    //         totalPrice: { $sum: '$menuItemsData.price'}
+    //       }
+    //     }
+    //   ];
+    //   console.log(pipeline)
+    //   // console.log(await paymentCollection.aggregate(pipeline).toArray())
+
+    //   const result = await paymentCollection.aggregate(pipeline).toArray()
+    //   res.send(result)
+    // // })
 
     
 
     //menu related api
+   
+        // using aggregate pipeline
+        app.get('/order-stats',  async(req, res) =>{
+          const result = await paymentCollection.aggregate([
+            {
+              $lookup: {
+                from: 'menus',
+                localField: 'menuItems',
+                foreignField: '_id',
+                as: 'menuItemsData'
+              }
+            },
+
+            {
+              $unwind: '$menuItemsData'
+            },
+
+            // {
+            //   $group: {
+            //     _id: '$menuItemsData.category',
+            //     quantity:{ $sum: 1 },
+            //     revenue: { $sum: '$menuItemsData.price'} 
+            //   }
+            // },
+
+            // {
+            //   $project: {
+            //     _id: 0,
+            //     category: '$_id',
+            //     quantity: '$quantity',
+            //     revenue: '$revenue'
+            //   }
+            // }
+
+          ]).toArray();
+
+          console.log('this is result ',result)
+    
+          res.send(result);
+    
+        })
+    
+   
     app.get('/menus', async(req,res) =>{
         const data = await menuCollection.find().toArray()
         res.send(data);
@@ -245,7 +290,7 @@ async function run() {
        const id = req.params.id;
        const query = {_id: new ObjectId(id)}
        const result = await cartCollection.deleteOne(query)
-       console.log(result)
+      //  console.log(result)
        res.send(result)
     })
 
@@ -257,14 +302,56 @@ async function run() {
 
     app.post('/addReview', async(req,res) =>{
       const data = req.body;
-      const result = await reviewCollection(data);
+      console.log(data)
+      const result = await reviewCollection.insertOne(data);
       res.send(result)
     })
 
+    //resevation related api
+    app.get("/bookings", verifyJWT, async(req,res) =>{
+      const email = req.query.email
+      // console.log(email)
+      if(!email){
+        res.send([]);
+      }
+      else{
+
+        const decodedEmail = req.decoded.email;
+        if(email !== decodedEmail){
+          return res.status(403).send({ error: true, message: 'providen access'})
+        }
+        const query = {BookingUser: email};
+        const result = await bookingCollection.find(query).toArray();
+        res.send(result)
+      }
+    })
+
+
+    app.post('/addBooking', async(req, res) =>{
+      const data = req.body;
+      // console.log(data)
+      const result = await bookingCollection.insertOne(data)
+      res.send(result)
+    })
+   
+    app.delete('/bookings/:id', async(req,res) =>{
+      const id = req.params.id;
+      const query = {_id: new ObjectId(id)}
+      const result = await bookingCollection.deleteOne(query)
+      console.log(result)
+      res.send(result)
+    })
     //payment related api
+    app.get('/payments/:email', async(req,res) =>{
+      const email = req.params.email;
+      console.log(email);
+      const query = {email: email}
+      const result = await paymentCollection.find(query).toArray();
+      res.send(result);
+    })
     app.post('/payments', verifyJWT, async(req,res) =>{
       const payment = req.body;
-      console.log(payment)
+      // console.log(payment)
       const result = await paymentCollection.insertOne(payment)
 
       const query = {_id: { $in: payment.cartItems.map(id => new ObjectId(id))}}
