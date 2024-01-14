@@ -24,10 +24,12 @@ const verifyJWT = (req, res, next) =>{
   const token = authorization.split(' ')[1];
   jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err,decoded) =>{
     if(err){
+      
       return res.status(401).send({error: true, message: 'unauthorized access'})
     }
     else{
       req.decoded = decoded;
+      // console.log('verify jwt - ', decoded)
       next();
     }
   })
@@ -55,24 +57,30 @@ async function run() {
     const cartCollection = client.db("BistroBossResDB").collection('carts');
     const bookingCollection = client.db("BistroBossResDB").collection('booking');
     const paymentCollection = client.db("BistroBossResDB").collection('PaymentHistory');
+    const messageCollection = client.db("BistroBossResDB").collection('message');
+
     // console.log(process.env.ACCESS_TOKEN_SECRET)
 
     app.post('/jwt', (req,res) =>{
       const user = req.body;
       const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
         expiresIn: '1hr'})
-
+      
       res.send({token})
     })
     
     //Warning: use verifyJWT before using verifyAdmin
     const verifyAdmin = async(req, res, next) =>{
       const email = req.decoded.email;
-      const query = {email: email}
+      // console.log('verify admin - ', email)
+      const query = {email: new RegExp(email,'i')}
+      // console.log('check query before find - ', query)
       const user = await userCollection.findOne(query)
+      // console.log('check user after find ' , user)
       if(user?.roll !== 'admin'){
         return res.status(403).send({error: true, message: 'forbidden message'})
       }
+      // console.log(user)
       next()
     }
 
@@ -107,25 +115,26 @@ async function run() {
     // check admin
     app.get('/users/admin/:email', verifyJWT,verifyAdmin, async(req,res) =>{
       const email = req.params.email;
-      console.log(email)
+      // console.log("this code print get method - ",email)
 
       if(req.decoded.email !== email){
         res.send({ admin: false})
       }
 
-      const query = {email: email};
+      const query = {email: new RegExp(email,'i')};
       const user = await userCollection.findOne(query);
       const result = { admin: user?.roll === 'admin'};
+      // console.log(result)
       res.send(result)
     })
 
     app.patch('/users/admin/:id', async(req,res) =>{
       const id = req.params.id
-      console.log(id)
+      // console.log(id)
       const filter = {_id: new ObjectId(id)};
       const updateDoc = {
         $set: {
-          role: 'admin'
+          roll: 'admin'
         },
       };
 
@@ -135,14 +144,14 @@ async function run() {
     })
 
     //admin dashbaord related api 
-    app.get('/admin-stats', verifyJWT, verifyAdmin, async(req,res) =>{
+    app.get('/admin-stats',verifyJWT,verifyAdmin,  async(req,res) =>{
       const users = await userCollection.estimatedDocumentCount();
       const products = await menuCollection.estimatedDocumentCount();
       const orders = await paymentCollection.estimatedDocumentCount();
       
       //best way to get sum of a field is to use group and sum operator
       const payments = await paymentCollection.find().toArray();
-      const revenue = payments.reduce( (sum, payment) => sum + payment.price, 0)
+      const revenue = payments.reduce( (sum, payment) => sum + payment.price, 0).toFixed(2)
 
       res.send({
         users,
@@ -152,6 +161,7 @@ async function run() {
       })
     })
     
+
     /**
      * ------------------
      * Bangla System(second best solution)
@@ -200,46 +210,41 @@ async function run() {
 
     //menu related api
    
-        // using aggregate pipeline
-        app.get('/order-stats',  async(req, res) =>{
-          const result = await paymentCollection.aggregate([
-            {
-              $lookup: {
-                from: 'menus',
-                localField: 'menuItems',
-                foreignField: '_id',
-                as: 'menuItemsData'
-              }
-            },
-
-            {
-              $unwind: '$menuItemsData'
-            },
-
-            // {
-            //   $group: {
-            //     _id: '$menuItemsData.category',
-            //     quantity:{ $sum: 1 },
-            //     revenue: { $sum: '$menuItemsData.price'} 
-            //   }
-            // },
-
-            // {
-            //   $project: {
-            //     _id: 0,
-            //     category: '$_id',
-            //     quantity: '$quantity',
-            //     revenue: '$revenue'
-            //   }
-            // }
-
-          ]).toArray();
-
-          console.log('this is result ',result)
-    
-          res.send(result);
-    
-        })
+    // using aggregate pipeline
+    app.get('/order-stats',  async(req, res) =>{
+      const result = await paymentCollection.aggregate([
+        {
+          $lookup: {
+            from: 'menus',
+            localField: 'itemNames',
+            foreignField: 'name',
+            as: 'menuItemsData'
+          }
+        },
+        {
+          $unwind: '$menuItemsData'
+        },
+        {
+          $group: {
+            _id: '$menuItemsData.category',
+            quantity: { $sum: 1 },
+            revenue: { $sum: '$menuItemsData.price' }
+          }
+        },
+        {
+          $project: {
+            _id: 0,
+            category: '$_id',
+            quantity: '$quantity',
+            revenue: '$revenue'
+          }
+        }
+      ]).toArray();
+      
+      // console.log('this is result ', result);
+      
+      res.send(result);    
+    })
     
    
     app.get('/menus', async(req,res) =>{
@@ -294,6 +299,14 @@ async function run() {
        res.send(result)
     })
 
+    //mail api
+    app.post('/mail', async(req,res) =>{
+        const data = req.body;
+        // console.log(data)
+        const result = await messageCollection.insertOne(data)
+        res.send(result)
+    })
+
     //review related api
     app.get('/reviews', async(req,res) =>{
       const result = await reviewCollection.find().toArray()
@@ -338,7 +351,7 @@ async function run() {
       const id = req.params.id;
       const query = {_id: new ObjectId(id)}
       const result = await bookingCollection.deleteOne(query)
-      console.log(result)
+      // console.log(result)
       res.send(result)
     })
     //payment related api
