@@ -90,6 +90,10 @@ async function run() {
      * 3. use verifyAdmin middleware
      */
 
+    app.get('/test', (req,res) =>{
+      res.send('this is test route')
+    })
+
     //user related api
     app.get('/users', verifyJWT, async(req,res) =>{
       const result = await userCollection.find().toArray();
