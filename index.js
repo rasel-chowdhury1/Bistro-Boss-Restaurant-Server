@@ -148,7 +148,7 @@ async function run() {
     })
 
     //admin dashbaord related api 
-    app.get('/admin-stats',verifyJWT,verifyAdmin,  async(req,res) =>{
+    app.get('/admin-stats',  async(req,res) =>{
       const users = await userCollection.estimatedDocumentCount();
       const products = await menuCollection.estimatedDocumentCount();
       const orders = await paymentCollection.estimatedDocumentCount();
